@@ -1,10 +1,18 @@
 #include <pcap.h>
 #include <stdint.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 
 void usage() {
 	printf("syntax: pcap_test <interface>\n");
 	printf("sample: pcap_test wlan0\n");
+}
+
+char* ether_ntoa_u(uint8_t *addr) {
+	static char buf[18];
+	sprintf(buf, "%02X-%02X-%02X-%02X-%02X-%02X",
+	addr[0],addr[1],addr[2],addr[3],addr[4],addr[5]);
+	return buf;
 }
 
 int main(int argc, char* argv[]) {
@@ -28,36 +36,31 @@ int main(int argc, char* argv[]) {
 		int res = pcap_next_ex(handle, &header, &packet);
 		if (res == 0) continue;
 		if (res == -1 || res == -2) break;
-		printf("\n[ Packet ]\n%u Bytes captured\n",header->caplen);
+		printf("\n[ Packet ]\n%u Bytes captured",header->caplen);
 
 		uint8_t *p = (uint8_t*)packet;
 		int i;
-//		for(i=0; i<header->caplen; i++,p++) if(i%16)printf("%02X ", *p); else printf("\n%02X ", *p);
-		printf("Source MAC\t: ");
-		for(p=(uint8_t*)packet+(i=6); i<12; i++,p++)
-		       	i!=6?printf("-%02X",*p):printf("%02X",*p);
-		printf("\nDestination MAC\t: ");
-		for(p=(uint8_t*)packet+(i=0); i<6; i++,p++)
-			i?printf("-%02X",*p):printf("%02X",*p);
-
 		p+=6;
+		printf("\nSource MAC\t: %s",ether_ntoa_u(p));
+		p-=6;
+		printf("\nDestination MAC\t: %s",ether_ntoa_u(p));
+		p+=12;
 		if(*(uint16_t*)p != 0x0008) continue;
-		printf("\nSource IP\t: ");
-		for(p=(uint8_t*)packet+(i=26); i<30; i++,p++)
-		       	i!=26?printf(".%d",*p):printf("%d",*p);
-		printf("\nDestination IP\t: ");
-		for(; i<34; i++,p++)
-			i!=30?printf(".%d",*p):printf("%d",*p);
 
+		p+=14;
+		printf("\nSource IP\t: %s",inet_ntoa(*(struct in_addr*)p));
+		p+=4;
+		printf("\nDestination IP\t: %s",inet_ntoa(*(struct in_addr*)p));
 		if(packet[23]!=0x06) continue;
+
 		int eth_len=14, ip_len=(packet[14]&0x0f)*4;
 		p=(uint8_t*)packet + eth_len + ip_len;
-		printf("\nSource Port\t: %d",*p*256 + *(p+1));
+		printf("\nSource Port\t: %u",ntohs(*(uint16_t*)p));
 		p+=2;
-		printf("\nDestination Port: %d",*p*256 + *(p+1));
-
+		printf("\nDestination Port: %u",ntohs(*(uint16_t*)p));
 		int tcp_len = ((packet[eth_len+ip_len+12]&0xf0)>>4)*4;
 		if(header->caplen-(eth_len+ip_len+tcp_len)<16) continue;
+
 		p=(uint8_t*)packet + eth_len + ip_len + tcp_len;
 		puts("\n[ Payload ]");
 		for(i=0; i<16; i++,p++) printf("%02X ", *p);
